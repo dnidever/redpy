@@ -9,7 +9,6 @@ import os
 from glob import glob
 import time
 #import matplotlib
-#matplotlib.use('nbagg')
 
 def ccdlist(input=None):
     if input is None: input='*.fits'
@@ -32,19 +31,6 @@ def ccdlist(input=None):
         print(base+'  '+str(cat['naxis1'][i])+'  '+str(cat['naxis2'][i])+'  '+cat['imagetyp'][i]+'  '+str(cat['exptime'][i])+'  '+cat['filter'][i])
     return cat
 
-def fixheader(head):
-    """ Update the headers."""
-    head2 = head.copy()
-    head2['BIASSEC1'] = '[1:41,1:2728]'
-    head2['BIASSEC2'] = '[3430:3465,1:2728]'
-    head2['TRIMSEC'] = '[42:3429,15:2726]'
-    head2['DATASEC'] = '[42:3429,15:2726]'
-    head2['RDNOISE'] = (4.5, 'readnoise in e-')
-    head2['GAIN'] = (0.15759900212287903, 'Electronic gain in e-/ADU')
-    head2['BUNIT'] = 'ADU'
-    return head2
-
-    
 def overscan(im,head):
     """ This calculate the overscan and subtracts it from the data and then trims off the overscan region"""
     # y = [0:40] and [3429:3464]
@@ -104,12 +90,6 @@ def masterbias(files,outfile=None,clobber=True):
     
     return aim, ahead
 
-
-def overscanzero(im,head,zero):
-    """ Overscan subtract, trim, subtract master zero"""
-    im2 = overscan(im)
-    return im2 - zero
-
 def masterdark(files,zero,outfile=None,clobber=True):
     """ Load the bias images.  Overscan correct and trim them.  zero subtract.  Then average them."""
     nfiles = len(files)
@@ -137,16 +117,6 @@ def masterdark(files,zero,outfile=None,clobber=True):
         hdu = fits.PrimaryHDU(aim,ahead).writeto(outfile)
     
     return aim, ahead
-
-def overscantrimzerodark(im,head,zero,dark):
-    """ Overscan subtract, trim, subtract master zero, subtract master dark"""
-    # Overscan subtract and trim
-    im2 = overscantrim(im)
-    # Subtract master bias
-    im2 -= zero
-    # Subtract master dark scaled to this exposure time
-    im2 -= dark*head['exptime']
-    return im2
 
 def masterflat(files,zero,dark):
     """ Load the bias images.  Overscan correct and trim them.  Then average them."""
