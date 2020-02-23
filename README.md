@@ -1,2 +1,2 @@
 # redpy
-Python data reduction software
+Python reduction software
