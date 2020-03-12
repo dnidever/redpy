@@ -9,6 +9,7 @@ import os
 from glob import glob
 import time
 #import matplotlib
+#matplotlib.use('nbagg')
 
 def ccdlist(input=None):
     if input is None: input='*.fits'
@@ -31,6 +32,7 @@ def ccdlist(input=None):
         print(base+'  '+str(cat['naxis1'][i])+'  '+str(cat['naxis2'][i])+'  '+cat['imagetyp'][i]+'  '+str(cat['exptime'][i])+'  '+cat['filter'][i])
     return cat
 
+    
 def overscan(im,head):
     """ This calculate the overscan and subtracts it from the data and then trims off the overscan region"""
     # y = [0:40] and [3429:3464]
@@ -66,7 +68,32 @@ def overscan(im,head):
     return out, head2
     
 def masterbias(files,outfile=None,clobber=True):
-    """ Load the bias images.  Overscan correct and trim them.  Then average them."""
+    """
+    Load the bias images.  Overscan correct and trim them.  Then average them.
+
+    Parameters
+    ----------
+    files : list
+        List of bias FITS files.
+    outfile : string, optional
+        Filename to write the master bias image to.
+    clobber : bool, optional
+        If the output file already exists, then overwrite it.
+
+    Returns
+    -------
+    aim : numpy image
+        The 2D master bias image.
+    ahead : header dictionary
+        The master bias header.
+
+    Example
+    -------
+
+    bias, bhead = masterbias(bias_files)
+
+    """
+
     nfiles = len(files)
     imarr = np.zeros((2712, 3388, nfiles),float)
     for i in range(nfiles):
@@ -90,8 +117,39 @@ def masterbias(files,outfile=None,clobber=True):
     
     return aim, ahead
 
+
+def overscanzero(im,head,zero):
+    """ Overscan subtract, trim, subtract master zero"""
+    im2 = overscan(im)
+    return im2 - zero
+
 def masterdark(files,zero,outfile=None,clobber=True):
-    """ Load the bias images.  Overscan correct and trim them.  zero subtract.  Then average them."""
+    """
+    Load the dark images.  Overscan correct and trim them.  zero subtract.  Then average them.
+
+    Parameters
+    ----------
+    files : list
+        List of dark FITS files.
+    outfile : string, optional
+        Filename to write the master dark image to.
+    clobber : bool, optional
+        If the output file already exists, then overwrite it.
+
+    Returns
+    -------
+    aim : numpy image
+        The 2D master dark image.
+    ahead : header dictionary
+        The master dark header.
+
+    Example
+    -------
+
+    dark, dhead = masterdark(dark_files)
+
+    """
+
     nfiles = len(files)
     imarr = np.zeros((2712, 3388, nfiles),float)
     for i in range(nfiles):
@@ -118,8 +176,43 @@ def masterdark(files,zero,outfile=None,clobber=True):
     
     return aim, ahead
 
-def masterflat(files,zero,dark):
-    """ Load the bias images.  Overscan correct and trim them.  Then average them."""
+def overscantrimzerodark(im,head,zero,dark):
+    """ Overscan subtract, trim, subtract master zero, subtract master dark"""
+    # Overscan subtract and trim
+    im2 = overscantrim(im)
+    # Subtract master bias
+    im2 -= zero
+    # Subtract master dark scaled to this exposure time
+    im2 -= dark*head['exptime']
+    return im2
+
+def masterflat(files,zero,dark,outfile=None,clobber=True):
+    """
+    Load the flat images.  Overscan correct and trim them.  Bias and dark subtract. Then divide by median and average them.
+
+    Parameters
+    ----------
+    files : list
+        List of flat FITS files.
+    outfile : string, optional
+        Filename to write the master flat image to.
+    clobber : bool, optional
+        If the output file already exists, then overwrite it.
+
+    Returns
+    -------
+    aim : numpy image
+        The 2D master flat image.
+    ahead : header dictionary
+        The master flat header.
+
+    Example
+    -------
+
+    flat, fhead = masterflat(flat_files)
+
+    """
+
     nfiles = len(files)
     imarr = np.zeros((2712, 3388, nfiles),float)
     for i in range(nfiles):
@@ -131,10 +224,54 @@ def masterflat(files,zero,dark):
         ahead['CMB'+str(i+1)] = files[i]
     aim = np.mean(imarr,axis=2)
     ahead['NCOMBINE'] = nfiles
+
+    # Output file
+    if outfile is not None:
+        if os.path.exists(outfile):
+            if clobber is False:
+                raise ValueError(outfile+' already exists and clobber=False')
+            else:
+                os.remove(outfile)
+        print('Writing master flat to '+outfile)
+        hdu = fits.PrimaryHDU(aim,ahead).writeto(outfile)
+
     return aim, ahead
 
 def ccdproc(data,head=None,zero=None,dark=None,flat=None,outfile=None,clobber=True):
-    """ Overscan subtract, trim, subtract master zero, subtract master dark, flat field"""
+    """
+    Overscan subtract, trim, subtract master zero, subtract master dark, flat field.
+
+    Parameters
+    ----------
+    data : list or numpy 2D array
+        This can either be a list of image filenames or a 2D image.
+    head : header dictionary, optional
+        The header if an image is input.
+    zero : filename or numpy 2D array, optional
+        The master bias.  Either the 2D image or the filename.
+    dark : filename or numpy 2D array, optional
+        The master dark.  Either the 2D image or the filename.
+    flat : filename or numpy 2D array, optional
+        The master flat.  Either the 2D image or the filename.
+    outfile : string, optional
+        Filename to write the processed image to.
+    clobber : bool, optional
+        If the output file already exists, then overwrite it.
+
+    Returns
+    -------
+    fim : numpy image
+        The 2D processed image.
+    fhead : header dictionary
+        The header for the processed image.
+
+    Example
+    -------
+
+    flat, fhead = ccdproc(files,zero,dark,flat)
+
+    """
+
     # Filename input
     if type(data) is str:
         if os.path.exists(data):
@@ -146,10 +283,6 @@ def ccdproc(data,head=None,zero=None,dark=None,flat=None,outfile=None,clobber=Tr
         im = data
         if head is None:
             raise ValueError('Header not input')
-
-    # Fix header, if necessary
-    if (head.get('TRIMSEC') is None) | (head.get('BIASSEC') is None):
-        head = fixheader(head)
         
     # Overscan subtract and trim
     #---------------------------
